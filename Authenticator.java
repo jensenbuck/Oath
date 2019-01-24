@@ -13,10 +13,11 @@ import javax.crypto.spec.SecretKeySpec;
 
 import com.tarandrus.base32.Base32;
 
+
 public class Authenticator {
 
   private static final String HMAC_SHA1 = "HmacSHA1"; 
-  private static final int SECURE_CODE_MODULUS = 10^8;
+  private static final int SECURE_CODE_MODULUS = (int) Math.pow(10, 8);
   
   private final Configuration configuration;
   private final SecureRandom secureRandom;
@@ -66,16 +67,13 @@ public class Authenticator {
   }
  
   public Credentials createCredentials() throws InvalidKeyException, NoSuchAlgorithmException { 
-    byte[] buffer = new byte[10]; 
-    secureRandom.nextBytes(buffer);
- 
-    byte[] secretKey = Arrays.copyOf(buffer, 10);
- 
+    byte[] secretBytes = getRandomBytes(10); 
+    
     // create credentials at time 0
     return new Credentials(
       configuration,
-      createSecretKey(secretKey),
-      createAuthCode(secretKey, 0),
+      new Base32().encode(secretBytes),           // encoded secret key
+      createAuthCode(secretBytes, 0),             // authentication code @ 0 time 
       getRandomSecureCodes()
     );
   }
@@ -93,8 +91,9 @@ public class Authenticator {
     
     byte[] decodedSecretKey = new Base32().decode(encodedSecretKey);
     final long timeWindow = getWindowFromTime(time);
-    for (int i = -((configuration.getIntervalWindow() - 1) / 2); i <= configuration.getIntervalWindow() / 2; ++i) {
-      long hash = createAuthCode(decodedSecretKey, timeWindow + i);
+    
+    for (int i = 0; i < configuration.getValidPastIntervalCount(); i++) {
+      long hash = createAuthCode(decodedSecretKey, timeWindow - i);
 
       if (hash == authCode) {
         return true;
@@ -109,7 +108,7 @@ public class Authenticator {
   }
      
   private List<Integer> getRandomSecureCodes() {
-    return IntStream.range(0, 5)
+    return IntStream.range(0, 6)
       .boxed()
       .map(i -> createRandomSecureCode())
       .collect(Collectors.toList());
@@ -117,8 +116,7 @@ public class Authenticator {
     
   private int createRandomSecureCode() {
     while (true) {
-      byte[] buffer = new byte[4];
-      secureRandom.nextBytes(buffer);
+      byte[] buffer = getRandomBytes(4);
 
       int secureCode = 0; 
       for (int i = 0; i < 4; ++i) {
@@ -132,9 +130,21 @@ public class Authenticator {
       }
     }
   }
-     
-  private String createSecretKey(byte[] secretKeyBytes) {
-    return new Base32().encode(secretKeyBytes);
+  
+  private byte[] getRandomBytes(int length) {
+    byte[] buffer = new byte[length];
+    secureRandom.nextBytes(buffer);
+    
+    byte[] randomBytes = Arrays.copyOf(buffer, 10);
+    
+    // forcing to base32 byte range
+    for (int i=0; i<randomBytes.length; i++) {
+      if (randomBytes[i] < 0) {
+        randomBytes[i] += 128;
+      }
+    }
+    
+    return randomBytes;
   }
   
 }
